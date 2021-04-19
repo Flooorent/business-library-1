@@ -1,0 +1,69 @@
+# Azure Databricks Build Pipeline
+# azure-pipelines.yml
+
+trigger:
+  branches:
+    include:
+    - '*'
+  tags:
+    include:
+    - '*'
+
+pool:
+  vmImage: 'ubuntu-16.04'
+
+jobs:
+- job: Unit_Tests
+  steps:
+  - task: UsePythonVersion@0
+    displayName: 'Use Python 3.7'
+    inputs:
+      versionSpec: 3.7
+
+  - checkout: self
+    persistCredentials: true
+    clean: true
+
+  - task: PipAuthenticate@1
+    displayName: 'Pip Authenticate'
+    inputs:
+      artifactFeeds: 'Templates/shared-library-1'
+      onlyAddExtraIndex: true
+
+  - script: pip install -v -r requirements.txt
+    displayName: 'Install python dependencies'
+
+  - script: pytest
+    displayName: 'Run Python Unit Tests for library code'
+
+# run build phase only on tags
+- job: Build
+  dependsOn: Unit_Tests
+  condition: and(succeeded(), startsWith(variables['Build.SourceBranch'], 'refs/tags/'))
+  steps:
+  - task: UsePythonVersion@0
+    displayName: 'Use Python 3.7'
+    inputs:
+      versionSpec: 3.7
+
+  - checkout: self
+    persistCredentials: true
+    clean: true
+
+  - script: pip install setuptools wheel
+    displayName: 'Install python dependencies to package project'
+
+  - script: python setup.py sdist bdist_wheel
+    displayName: 'Build Python Wheel'
+
+  - script: |
+      mkdir -p $(Build.ArtifactStagingDirectory)/notebooks
+      mkdir -p $(Build.ArtifactStagingDirectory)/dist
+      cp $(Build.Repository.LocalPath)/notebooks/* $(Build.ArtifactStagingDirectory)/notebooks/
+      cp $(Build.Repository.LocalPath)/dist/*.* $(Build.ArtifactStagingDirectory)/dist/
+    displayName: 'Copy notebooks and wheel to common directory'
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      pathToPublish: '$(Build.ArtifactStagingDirectory)'
+      ArtifactName: '$(Build.Repository.Name)'
